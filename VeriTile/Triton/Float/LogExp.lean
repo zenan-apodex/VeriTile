@@ -9,7 +9,7 @@ fragments. Defining a candidate supplies no numerical equality.
 
 The generated LogAdmission table selects independently tested implementations.
 The tl.log and libdevice.log variants have distinct fragments and report IDs.
-Both guarded log-exp versions keep their original log(exp(a)) reference and
+Guarded log-exp versions keep their original log(exp(a)) reference and
 change only the candidate to a guarded identity with the original fallback. Refreshing
 the report changes availability, not the candidate definitions. Kernel
 implementations and their separate specifications are in bench/examples/LogExp/.
@@ -25,7 +25,7 @@ inconclusive relations. All fragments in this catalog compute in fp32. -/
 inductive Atom where
   | log_mul | log_mul_libdevice | log_mul_split | log_mul_split_intrinsic
   | log_exp | log_exp_libdevice | log_exp_full_libdevice | log_exp_log_libdevice
-  | log_exp_elim | log_exp_elim_intrinsic
+  | log_exp_elim | log_exp_elim_intrinsic | log_exp_elim_full_intrinsic | log_exp_elim_exp_intrinsic
   deriving DecidableEq, Repr
 
 /-- Candidate rewrites and their experiment identifiers. Every floating
@@ -58,10 +58,14 @@ def Atom.ruleID : Atom → String
   | .log_exp_elim => "LOG-EXP-GUARDED"
   -- Same guarded elimination; exp stays libdevice.exp and log uses tl.log.
   | .log_exp_elim_intrinsic => "LOG-EXP-GUARDED-INTRINSIC"
+  | .log_exp_elim_full_intrinsic => "LOG-EXP-GUARDED-FULL-INTRINSIC"
+  | .log_exp_elim_exp_intrinsic => "LOG-EXP-GUARDED-EXP-INTRINSIC"
 
 def candidates : List Atom := [.log_mul, .log_mul_libdevice, .log_mul_split,
   .log_mul_split_intrinsic, .log_exp, .log_exp_log_libdevice,
-  .log_exp_libdevice, .log_exp_full_libdevice, .log_exp_elim, .log_exp_elim_intrinsic]
+  .log_exp_libdevice, .log_exp_full_libdevice, .log_exp_elim, .log_exp_elim_intrinsic,
+  .log_exp_elim_full_intrinsic,
+  .log_exp_elim_exp_intrinsic]
 
 /-- Both fragments require the same finite input register `a`. -/
 def guards : List OperandGuard := [⟨"a", .finite⟩]
@@ -89,6 +93,15 @@ def intrinsicExpression (a : Op .real []) : Op .real [] :=
   let simplify := useIdentity a
   let fallback_a := .where simplify (.const 0) a
   let fallback := .log (.libdeviceExp fallback_a)
+  .where simplify a fallback
+
+/-- Guarded elimination with tl.exp. The log implementation is explicit;
+its reference and admission must match the same pair of intrinsics. -/
+def intrinsicExpExpression (libdeviceLog : Bool) (a : Op .real []) : Op .real [] :=
+  let simplify := useIdentity a
+  let fallback_a := .where simplify (.const 0) a
+  let exp_a := .exp fallback_a
+  let fallback := if libdeviceLog then .libdeviceLog exp_a else .log exp_a
   .where simplify a fallback
 
 /-- Test the rounded fp32 product, including both endpoints. -/
@@ -140,7 +153,8 @@ def productGuards : List OperandGuard :=
 def Atom.guards : Atom → List OperandGuard
   | .log_mul | .log_mul_libdevice | .log_mul_split | .log_mul_split_intrinsic => productGuards
   | .log_exp | .log_exp_log_libdevice | .log_exp_libdevice | .log_exp_full_libdevice
-    | .log_exp_elim | .log_exp_elim_intrinsic =>
+    | .log_exp_elim | .log_exp_elim_intrinsic | .log_exp_elim_full_intrinsic
+    | .log_exp_elim_exp_intrinsic =>
       VeriTile.Triton.FP.LogExp.guards
 
 def secondInput : Op .real [] := .ref .real [] "b"
@@ -151,8 +165,8 @@ for libdevice.exp when selecting a report. -/
 def Atom.lhs (a : Atom) : GuardedFragment := ⟨a.guards, assignOutput (match a with
   | .log_mul | .log_mul_split_intrinsic => .log (.mul .real .nil input secondInput)
   | .log_mul_libdevice | .log_mul_split => .libdeviceLog (.mul .real .nil input secondInput)
-  | .log_exp => .log (.exp input)
-  | .log_exp_log_libdevice => .libdeviceLog (.exp input)
+  | .log_exp | .log_exp_elim_full_intrinsic => .log (.exp input)
+  | .log_exp_log_libdevice | .log_exp_elim_exp_intrinsic => .libdeviceLog (.exp input)
   | .log_exp_libdevice | .log_exp_elim_intrinsic => .log (.libdeviceExp input)
   | .log_exp_full_libdevice | .log_exp_elim => .libdeviceLog (.libdeviceExp input))⟩
 
@@ -165,7 +179,9 @@ def Atom.rhs (a : Atom) : GuardedFragment := ⟨a.guards, assignOutput (match a 
   | .log_mul_split_intrinsic => splitProductIntrinsic input secondInput
   | .log_exp | .log_exp_log_libdevice | .log_exp_libdevice | .log_exp_full_libdevice => input
   | .log_exp_elim => expression input
-  | .log_exp_elim_intrinsic => intrinsicExpression input)⟩
+  | .log_exp_elim_intrinsic => intrinsicExpression input
+  | .log_exp_elim_full_intrinsic => intrinsicExpExpression Bool.false input
+  | .log_exp_elim_exp_intrinsic => intrinsicExpExpression Bool.true input)⟩
 
 /-- Match an accepted report to the candidate's exact fp32 profile and domain.
 Experimental shape and input distribution select the row; they do not become

@@ -23,17 +23,26 @@ theorem reference_matrix :
   ⟨rfl, rfl, rfl, rfl⟩
 
 theorem each_guarded_reference_is_unchanged :
+    Atom.log_exp_elim_full_intrinsic.lhs = Atom.log_exp.lhs ∧
+    Atom.log_exp_elim_exp_intrinsic.lhs = Atom.log_exp_log_libdevice.lhs ∧
     Atom.log_exp_elim_intrinsic.lhs = Atom.log_exp_libdevice.lhs ∧
     Atom.log_exp_elim.lhs = Atom.log_exp_full_libdevice.lhs ∧
     Atom.log_mul_split_intrinsic.lhs = Atom.log_mul.lhs ∧
-    Atom.log_mul_split.lhs = Atom.log_mul_libdevice.lhs := ⟨rfl, rfl, rfl, rfl⟩
+    Atom.log_mul_split.lhs = Atom.log_mul_libdevice.lhs := ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 /-- Equal measured results must never let one backend's report select the other. -/
 theorem reports_cannot_cross_backends :
+    Atom.log_exp_elim_full_intrinsic.matches LogAdmission.fp32_log_exp_guarded_intrinsic = Bool.false ∧
+    Atom.log_exp_elim_exp_intrinsic.matches LogAdmission.fp32_log_exp_guarded = Bool.false ∧
     Atom.log_exp_elim_intrinsic.matches LogAdmission.fp32_log_exp_guarded = Bool.false ∧
     Atom.log_exp_elim.matches LogAdmission.fp32_log_exp_guarded_intrinsic = Bool.false ∧
     Atom.log_mul_split_intrinsic.matches LogAdmission.fp32_log_mul_guarded = Bool.false ∧
     Atom.log_mul_split.matches LogAdmission.fp32_log_mul_guarded_intrinsic = Bool.false := by decide
+
+/-- The same guard does not authorize a different exp implementation. -/
+theorem intrinsic_exp_guard_is_unavailable :
+    ¬ Atom.log_exp_elim_full_intrinsic.Available ∧
+    ¬ Atom.log_exp_elim_exp_intrinsic.Available := by decide
 
 theorem selected_intrinsic_elimination (R : Rules) :
     [Atom.log_exp_elim_intrinsic.lhs] ≡[R] [Atom.log_exp_elim_intrinsic.rhs] :=
@@ -86,6 +95,15 @@ theorem intrinsic_elimination_routes :
     evaluate (intrinsicExpression (.const (1 / 2))) = some (2021 / 2) ∧
     evaluate (expression (.const (1 / 2))) = some (2201 / 2) := by
   norm_num [evaluate, intrinsicExpression, expression, useIdentity, absolute,
+    evalOp_unfold, numeric, numericLt, numericLe, bop, model]
+
+set_option maxHeartbeats 1600000 in
+theorem intrinsic_exp_routes :
+    evaluate (intrinsicExpExpression Bool.false (.const 1)) = some 1 ∧
+    evaluate (intrinsicExpExpression Bool.true (.const 1)) = some 1 ∧
+    evaluate (intrinsicExpExpression Bool.false (.const (1 / 2))) = some (4021 / 2) ∧
+    evaluate (intrinsicExpExpression Bool.true (.const (1 / 2))) = some (4201 / 2) := by
+  norm_num [evaluate, intrinsicExpExpression, useIdentity, absolute,
     evalOp_unfold, numeric, numericLt, numericLe, bop, model]
 
 set_option maxHeartbeats 1600000 in
